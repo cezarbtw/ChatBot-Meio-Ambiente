@@ -44,7 +44,6 @@ def classificar_noticia(titulo, texto):
     return encoder.inverse_transform(pred)[0]
 
 
-<<<<<<< HEAD
 if __name__ == "__main__":
     # Carregar modelos
     mlp = joblib.load("mlp_classifier.pkl")
@@ -87,11 +86,3 @@ if __name__ == "__main__":
     plt.grid(axis="y", linestyle="--", alpha=0.7)
     plt.tight_layout()
     plt.show()
-=======
-# Teste rápido
-if __name__ == "__main__":
-    titulo = "Homem tenta atravessar oceano em bola inflável gigante"
-    texto = "Um aventureiro decidiu cruzar o Oceano Atlântico usando apenas uma bola inflável gigante, afirmando que quer provar a resistência do plástico utilizado na fabricação do objeto. Autoridades locais acompanham o caso com curiosidade."
-    classificacao = classificar_noticia(titulo, texto)
-    print(f"Classificação: {classificacao}")
->>>>>>> parent of caef536 (Criação do Gráfico)
