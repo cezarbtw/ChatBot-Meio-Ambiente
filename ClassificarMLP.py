@@ -32,7 +32,7 @@ def classificar_noticia(titulo, texto, mlp, bert_model, tokenizer, encoder):
     return encoder.inverse_transform(pred)[0]
 
 
-if name == "main":
+if __name__ == "__main__":
     # Carregar modelos
     mlp = joblib.load("mlp_classifier.pkl")
     bert_model = BertModel.from_pretrained("bert_finetuned_noticias")
