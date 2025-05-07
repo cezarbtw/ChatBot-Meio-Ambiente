@@ -1,3 +1,5 @@
+import requests
+from bs4 import BeautifulSoup
 import torch
 import joblib
 import numpy as np
@@ -32,6 +34,25 @@ def classificar_noticia(titulo, texto, mlp, bert_model, tokenizer, encoder):
     return encoder.inverse_transform(pred)[0]
 
 
+def coletar_noticias_g1():
+    url = 'https://g1.globo.com/meio-ambiente/'
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content, 'html.parser')
+
+    noticias_coletadas = []
+    artigos = soup.select('.feed-post')[:5]
+    for artigo in artigos:
+        titulo_tag = artigo.select_one('.feed-post-body-title')
+        texto_tag = artigo.select_one('.feed-post-body-resumo')
+
+        if titulo_tag:
+            titulo = titulo_tag.get_text(strip=True)
+            texto = texto_tag.get_text(strip=True) if texto_tag else ""
+            noticias_coletadas.append((titulo, texto))
+
+    return noticias_coletadas
+
+
 if __name__ == "__main__":
     # Carregar modelos
     mlp = joblib.load("mlp_classifier.pkl")
@@ -41,18 +62,8 @@ if __name__ == "__main__":
     encoder = joblib.load("label_encoder.pkl")
 
     # Lista de notícias
-    noticias = [
-        ("Homem tenta atravessar oceano em bola inflável gigante",
-         "Um aventureiro decidiu cruzar o Oceano Atlântico usando apenas uma bola inflável gigante, afirmando que quer provar a resistência do plástico utilizado na fabricação do objeto. Autoridades locais acompanham o caso com curiosidade."),
-        ("Poluição do ar atinge níveis críticos em grandes capitais brasileiras",
-         "Relatório do Ministério do Meio Ambiente aponta que cidades como São Paulo e Belo Horizonte apresentaram índices alarmantes de material particulado no ar durante o último mês."),
-        ("Novo filme brasileiro vence festival internacional",
-         "Uma produção nacional surpreende jurados e leva prêmio máximo em festival europeu, destacando-se pela originalidade e temática social."),
-        ("Trânsito congestionado após acidente em rodovia",
-         "Um acidente envolvendo três veículos causou congestionamento na rodovia BR-101, próximo ao km 250. Ninguém se feriu gravemente."),
-        ("Energia solar bate recorde de produção no Brasil em 2025",
-         "S país superou a marca de 30 GW de capacidade instalada em energia solar, impulsionado por incentivos fiscais e queda no preço de painéis fotovoltaicos.")
-    ]
+    # Coleta de notícias com web scraping
+    noticias = coletar_noticias_g1()
 
     # Classificar todas
     resultados = []
