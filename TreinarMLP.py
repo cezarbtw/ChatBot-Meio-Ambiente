@@ -9,6 +9,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 import joblib
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 def clean_text(text):
@@ -37,11 +38,8 @@ bert_model.eval()
 encoder = LabelEncoder()
 y_encoded = encoder.fit_transform(y)
 
-# Dividir treino e teste
 X_train, X_test, y_train, y_test = train_test_split(
     X, y_encoded, test_size=0.2, random_state=42)
-
-# Função para gerar vetor [CLS]
 
 
 def gerar_embedding(texto):
@@ -54,13 +52,11 @@ def gerar_embedding(texto):
     return cls_embedding.numpy()
 
 
-# Gerar embeddings
 X_train_embeddings = np.array([gerar_embedding(texto) for texto in X_train])
 X_test_embeddings = np.array([gerar_embedding(texto) for texto in X_test])
 
-# Treinar MLP
 mlp = MLPClassifier(
-    hidden_layer_sizes=(100, 50),  # Camadas ocultas
+    hidden_layer_sizes=(100, 50),
     activation="relu",
     solver="adam",
     max_iter=500,
@@ -70,7 +66,6 @@ mlp = MLPClassifier(
 
 mlp.fit(X_train_embeddings, y_train)
 
-# Avaliação
 y_pred = mlp.predict(X_test_embeddings)
 
 print("Acurácia:", accuracy_score(y_test, y_pred))
@@ -84,7 +79,6 @@ joblib.dump(encoder, "label_encoder.pkl")
 
 
 def classificar_nova_noticia(titulo, texto):
-    # Carregar os modelos
     mlp = joblib.load("mlp_classifier.pkl")
     bert_model = BertModel.from_pretrained("bert_finetuned_noticias")
     tokenizer = BertTokenizer.from_pretrained(
@@ -96,7 +90,6 @@ def classificar_nova_noticia(titulo, texto):
 
     conteudo = titulo + ". " + texto
 
-    # Tokenizar e gerar embedding
     inputs = tokenizer(conteudo, return_tensors="pt",
                        truncation=True, padding="max_length", max_length=128)
     with torch.no_grad():
@@ -104,7 +97,6 @@ def classificar_nova_noticia(titulo, texto):
     cls_embedding = outputs.last_hidden_state[:, 0, :].squeeze(
         0).numpy().reshape(1, -1)
 
-    # Classificar
     pred = mlp.predict(cls_embedding)
     return encoder.inverse_transform(pred)[0]
 
@@ -113,3 +105,26 @@ titulo = "Pesquisadores criam método inovador"
 texto = "para purificar água usando algas naturais."
 print("Classificação da nova notícia:",
       classificar_nova_noticia(titulo, texto))
+
+
+palavras_chave = ["incêndios", "desmatamento",
+                  "aquecimento", "temperatura", "poluição"]
+
+if "conteudo" not in df.columns:
+    df["conteudo"] = (df["titulo"] + ". " + df["texto"]).str.lower()
+
+for palavra in palavras_chave:
+    df[palavra] = df["conteudo"].str.count(palavra)
+
+ocorrencias = df.groupby("rotulo")[palavras_chave].sum()
+
+ocorrencias_percentual = ocorrencias.div(ocorrencias.sum(axis=0), axis=1) * 100
+
+ocorrencias_percentual.plot(kind="bar", figsize=(12, 6))
+plt.title("Distribuição Percentual das Palavras-Chave por Tipo de Notícia")
+plt.ylabel("Porcentagem (%)")
+plt.xlabel("Classificação da Notícia")
+plt.xticks(rotation=0)
+plt.grid(axis="y", linestyle="--", alpha=0.7)
+plt.tight_layout()
+plt.show()
