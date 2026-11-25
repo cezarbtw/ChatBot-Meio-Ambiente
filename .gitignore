@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Ambiente e variáveis sensíveis
+.env
+.env.*
+
+# Cache e pesos pesados de modelos (baixados sob demanda do HuggingFace Hub)
+bert_finetuned_noticias/
+*.safetensors
+*.bin
+.cache/
+
+# Banco local / logs
+*.db
+*.sqlite3
+*.log
+
+# Frontend (futuro)
+frontend/node_modules/
+frontend/dist/
+
+# Sistema
+.DS_Store
+Thumbs.db
