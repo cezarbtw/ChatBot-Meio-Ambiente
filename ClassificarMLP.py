@@ -1,4 +1,4 @@
-"""Script de coleta no G1 e classificação de notícias ambientais."""
+"""Script de coleta no G1 e classificação de notícias ambientais com confiança."""
 
 import argparse
 from pathlib import Path
@@ -115,23 +115,37 @@ def main() -> None:
     else:
         noticias = coletar_noticias_g1()
 
+    results = classifier.predict_many_detailed(
+        [(titulo, texto) for titulo, texto, _, _, _ in noticias]
+    )
+
     dados_resultado = []
-    for i, (titulo, texto, link, protocolo, data) in enumerate(noticias, start=1):
-        classe = classifier.predict(titulo, texto)
+    for i, ((titulo, _texto, link, protocolo, data), pred) in enumerate(
+        zip(noticias, results), start=1
+    ):
         dados_resultado.append(
             {
                 "Data": data,
-                "Classe": classe,
+                "Classe": pred.label,
+                "Confiança": pred.confidence,
+                "Ambíguo": pred.is_ambiguous,
                 "Título": titulo,
                 "Link": link,
             }
         )
+        probs_fmt = ", ".join(
+            f"{cls_name}: {prob:.1%}"
+            for cls_name, prob in sorted(pred.probabilities.items())
+        )
         print(f"Notícia {i}:")
-        print(f"  Título    : {titulo}")
-        print(f"  Classe    : {classe}")
-        print(f"  Link      : {link}")
-        print(f"  Protocolo : {protocolo}")
-        print(f"  Data      : {data}")
+        print(f"  Título        : {titulo}")
+        print(f"  Classe        : {pred.label} ({pred.confidence:.1%})")
+        print(f"  Probabilidades: {probs_fmt}")
+        if pred.is_ambiguous:
+            print(f"  [AMBÍGUO]     : {pred.ambiguous_reason}")
+        print(f"  Link          : {link}")
+        print(f"  Protocolo     : {protocolo}")
+        print(f"  Data          : {data}")
 
     if not args.no_plot and dados_resultado:
         plot_daily_counts(pd.DataFrame(dados_resultado))

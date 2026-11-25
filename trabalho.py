@@ -1,136 +1,88 @@
-import pandas as pd
-import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
-from time import time
+"""Benchmark comparativo de modelos (TF-IDF, embeddings Transformer e fine-tuning)."""
 
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
-from sklearn.neural_network import MLPClassifier
-from sklearn import tree
-from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
-from sklearn.naive_bayes import GaussianNB
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
-from sklearn.feature_extraction.text import TfidfVectorizer
+import argparse
+from pathlib import Path
+from typing import List
 
-df = pd.read_csv("noticias_classificadas.csv")
-
-df['conteudo'] = df['titulo'] + " " + df['texto']
-
-vectorizer = TfidfVectorizer(max_features=1000)
-x_data = vectorizer.fit_transform(df['conteudo'])
-
-y_data = df['rotulo']
-
-x_train, x_test, y_train, y_test = train_test_split(
-    x_data, y_data, test_size=0.3, random_state=42)
-
-print("x_train:", x_train.shape)
-print("x_test:", x_test.shape)
-print("y_train:", y_train.shape)
-print("y_test:", y_test.shape)
+from src.config import ARTIFACTS_DIR, BENCHMARK_FILENAME, DATA_PATH, DEFAULT_BERT_MODEL
+from src.nlp.benchmark import (
+    BenchmarkEntry,
+    export_benchmark_report,
+    finetune_sequence_classifier,
+    plot_benchmark_results,
+    run_embedding_benchmark,
+    run_tfidf_benchmark,
+)
+from src.nlp.dataset import load_dataset
 
 
-def mostrar_desempenho(x_train, y_train, x_test, y_test, model, name):
-    inicio = time()
-    model.fit(x_train, y_train)
-    fim = time()
-    tempo_treinamento = (fim - inicio) * 1000
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Executa comparativo entre modelos TF-IDF e embeddings Transformer."
+    )
+    parser.add_argument("--data", type=Path, default=DATA_PATH)
+    parser.add_argument(
+        "--output-json", type=Path, default=ARTIFACTS_DIR / BENCHMARK_FILENAME
+    )
+    parser.add_argument("--include-embeddings", action="store_true")
+    parser.add_argument(
+        "--models",
+        nargs="+",
+        default=[DEFAULT_BERT_MODEL],
+        help="Checkpoints HuggingFace avaliados quando --include-embeddings estiver ativo.",
+    )
+    parser.add_argument("--finetune-model", type=str, default=None)
+    parser.add_argument("--finetune-epochs", type=int, default=3)
+    parser.add_argument("--cv-splits", type=int, default=5)
+    parser.add_argument("--no-plot", action="store_true")
+    parser.add_argument("--save-plots-dir", type=Path, default=None)
+    args = parser.parse_args()
 
-    inicio = time()
-    y_predicted = model.predict(x_test)
-    fim = time()
-    tempo_previsao = (fim - inicio) * 1000
+    df = load_dataset(args.data, require_valid=True)
 
-    print(f'\nRelatório utilizando algoritmo {name}')
-    print('\nMatriz de Confusão:')
-    print(confusion_matrix(y_test, y_predicted))
-    print('\nRelatório de Classificação:')
-    print(classification_report(y_test, y_predicted))
+    entries: List[BenchmarkEntry] = []
+    entries.extend(run_tfidf_benchmark(df, cv_splits=args.cv_splits))
 
-    accuracy = accuracy_score(y_test, y_predicted)
-    relatorio = classification_report(y_test, y_predicted, output_dict=True)
+    if args.include_embeddings:
+        entries.extend(
+            run_embedding_benchmark(
+                df,
+                model_names=args.models,
+                cv_splits=args.cv_splits,
+            )
+        )
 
-    print('Accuracy:', accuracy)
-    print('Precision:', relatorio['macro avg']['precision'])
-    print('Tempo de treinamento (ms):', tempo_treinamento)
-    print('Tempo de previsão (ms):', tempo_previsao)
+    if args.finetune_model:
+        entries.append(
+            finetune_sequence_classifier(
+                df,
+                model_name=args.finetune_model,
+                epochs=args.finetune_epochs,
+            )
+        )
 
-    return accuracy, tempo_treinamento, tempo_previsao
+    report = export_benchmark_report(entries, output_path=args.output_json)
+    print(f"\nBenchmark salvo em: {args.output_json}")
+    print(
+        f"{'Configuração':<46} {'CV F1':>8} {'Holdout Acc':>12} {'Holdout F1':>11} {'Boa->Ruim':>10}"
+    )
+    print("-" * 92)
+    for row in report["results"]:
+        cv_f1 = (
+            f"{row['cv_f1_macro_mean']:.4f}"
+            if row["cv_f1_macro_mean"] is not None
+            else "   N/A"
+        )
+        print(
+            f"{row['name']:<46} {cv_f1:>8} {row['holdout_accuracy']:>12.4f} "
+            f"{row['holdout_f1_macro']:>11.4f} {row['boa_as_ruim_count']:>10d}"
+        )
+
+    if not args.no_plot or args.save_plots_dir is not None:
+        plot_benchmark_results(
+            entries, save_dir=args.save_plots_dir, show=not args.no_plot
+        )
 
 
-model_mlp = MLPClassifier(hidden_layer_sizes=(
-    10, 10, 10), max_iter=1000, random_state=42)
-acc_mlp, tt_mlp, tp_mlp = mostrar_desempenho(
-    x_train, y_train, x_test, y_test, model_mlp, 'MLP')
-
-model_arvore = tree.DecisionTreeClassifier(random_state=42)
-acc_dt, tt_dt, tp_dt = mostrar_desempenho(
-    x_train, y_train, x_test, y_test, model_arvore, 'DecisionTree')
-
-model_rf = RandomForestClassifier(
-    max_depth=5, n_estimators=10, max_features=1, random_state=42)
-acc_rf, tt_rf, tp_rf = mostrar_desempenho(
-    x_train, y_train, x_test, y_test, model_rf, 'RandomForest')
-
-model_ada = AdaBoostClassifier(random_state=42)
-acc_ada, tt_ada, tp_ada = mostrar_desempenho(
-    x_train, y_train, x_test, y_test, model_ada, 'AdaBoost')
-
-model_knn = KNeighborsClassifier(n_neighbors=5)
-acc_knn, tt_knn, tp_knn = mostrar_desempenho(
-    x_train, y_train, x_test, y_test, model_knn, 'KNN')
-
-model_lr = LogisticRegression(max_iter=1000, random_state=42)
-acc_lr, tt_lr, tp_lr = mostrar_desempenho(
-    x_train, y_train, x_test, y_test, model_lr, 'LogisticRegression')
-
-model_svm = SVC(random_state=42)
-acc_svm, tt_svm, tp_svm = mostrar_desempenho(
-    x_train, y_train, x_test, y_test, model_svm, 'SVM')
-
-model_gnb = GaussianNB()
-acc_gnb, tt_gnb, tp_gnb = mostrar_desempenho(
-    x_train.toarray(), y_train, x_test.toarray(), y_test, model_gnb, 'GaussianNB')
-
-model_lda = LinearDiscriminantAnalysis()
-acc_lda, tt_lda, tp_lda = mostrar_desempenho(
-    x_train.toarray(), y_train, x_test.toarray(), y_test, model_lda, 'LDA')
-
-model_qda = QuadraticDiscriminantAnalysis()
-acc_qda, tt_qda, tp_qda = mostrar_desempenho(
-    x_train.toarray(), y_train, x_test.toarray(), y_test, model_qda, 'QDA')
-
-algoritmos = ['GaussianNB', 'MLP', 'DecisionTree', 'KNN',
-              'LogReg', 'LDA', 'SVM', 'RandomForest', 'AdaBoost', 'QDA']
-accs = [acc_gnb, acc_mlp, acc_dt, acc_knn, acc_lr,
-        acc_lda, acc_svm, acc_rf, acc_ada, acc_qda]
-
-plt.figure(figsize=(10, 6))
-plt.bar(algoritmos, accs)
-plt.title('Acurácia dos Modelos')
-plt.ylabel('Acurácia')
-plt.xticks(rotation=45)
-plt.show()
-
-tts = [tt_gnb, tt_mlp, tt_dt, tt_knn, tt_lr,
-       tt_lda, tt_svm, tt_rf, tt_ada, tt_qda]
-plt.figure(figsize=(10, 6))
-plt.bar(algoritmos, tts)
-plt.title('Tempo de Treinamento (ms)')
-plt.ylabel('Tempo (ms)')
-plt.xticks(rotation=45)
-plt.show()
-
-tps = [tp_gnb, tp_mlp, tp_dt, tp_knn, tp_lr,
-       tp_lda, tp_svm, tp_rf, tp_ada, tp_qda]
-plt.figure(figsize=(10, 6))
-plt.bar(algoritmos, tps)
-plt.title('Tempo de Previsão (ms)')
-plt.ylabel('Tempo (ms)')
-plt.xticks(rotation=45)
-plt.show()
+if __name__ == "__main__":
+    main()
