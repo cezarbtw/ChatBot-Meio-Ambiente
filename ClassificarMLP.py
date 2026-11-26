@@ -15,9 +15,10 @@ from src.collectors import (
     collect_from_sources,
 )
 from src.collectors.manager import build_telemetry_report, export_telemetry_report
-from src.config import ARTIFACTS_DIR, TELEMETRY_FILENAME
+from src.config import ARTIFACTS_DIR, DEFAULT_DB_PATH, TELEMETRY_FILENAME
 from src.network import PacketCaptureSummary, capture_network_traffic
 from src.nlp.classifier import NewsClassifier
+from src.storage import NewsRepository, create_db_engine, init_db
 
 NOTICIAS_MANUAIS: List[Tuple[str, str]] = [
     (
@@ -102,6 +103,12 @@ def main() -> None:
     )
     parser.add_argument("--capture-interface", type=str, default=None)
     parser.add_argument("--capture-seconds", type=int, default=5)
+    parser.add_argument(
+        "--save-db",
+        action="store_true",
+        help="Persiste os itens coletados, classificações e telemetria no banco SQLite.",
+    )
+    parser.add_argument("--db-path", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument("--artifacts-dir", type=Path, default=ARTIFACTS_DIR)
     parser.add_argument("--no-plot", action="store_true")
     args = parser.parse_args()
@@ -185,6 +192,21 @@ def main() -> None:
     results = classifier.predict_many_detailed(
         [(item.title, item.text) for item in items]
     )
+
+    if args.save_db and items:
+        engine = create_db_engine(args.db_path)
+        init_db(engine)
+        repo = NewsRepository(engine)
+        batch_res = repo.save_collection_batch(
+            sources_requested=[args.source],
+            items_with_predictions=list(zip(items, results)),
+            reports=reports,
+        )
+        print(
+            f"=== Banco SQLite ({args.db_path}) ===\n"
+            f"  Run #{batch_res.run_id}: {batch_res.items_inserted} inserido(s), "
+            f"{batch_res.items_deduplicated} deduplicado(s)\n"
+        )
 
     dados_resultado = []
     for i, (item, pred) in enumerate(zip(items, results), start=1):

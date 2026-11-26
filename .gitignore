@@ -20,6 +20,7 @@ bert_finetuned_noticias/
 .cache/
 
 # Banco local / logs / telemetria de execução ao vivo
+data/
 *.db
 *.sqlite3
 *.log
