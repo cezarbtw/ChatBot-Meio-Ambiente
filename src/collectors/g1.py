@@ -27,12 +27,16 @@ class G1Collector(BaseCollector):
         max_retries: int = 2,
         backoff_factor: float = 0.5,
         session: Optional[requests.Session] = None,
+        inspector=None,
+        inspect_network: Optional[bool] = None,
     ) -> None:
         super().__init__(
             timeout=timeout,
             max_retries=max_retries,
             backoff_factor=backoff_factor,
             session=session,
+            inspector=inspector,
+            inspect_network=inspect_network,
         )
         self.url = url
         self.enrich_missing_dates = enrich_missing_dates
@@ -47,6 +51,7 @@ class G1Collector(BaseCollector):
 
     def collect(self, limit: int = 10) -> List[CollectedItem]:
         response = self._get(self.url)
+        listing_telemetry = self.last_telemetry
         soup = BeautifulSoup(response.content, "html.parser")
 
         items: List[CollectedItem] = []
@@ -69,9 +74,12 @@ class G1Collector(BaseCollector):
             card_dt_text = dt_tag.get_text(strip=True) if dt_tag else None
 
             article_html: Optional[str] = None
+            item_telemetry = listing_telemetry
             url_has_date = parse_url_date(link) is not None
             if self.always_fetch_article or (self.enrich_missing_dates and not url_has_date):
                 article_html = self._fetch_article_html(link)
+                if article_html is not None and self.last_telemetry is not None:
+                    item_telemetry = self.last_telemetry
 
             published_at = extract_published_date(
                 article_html=article_html,
@@ -79,7 +87,11 @@ class G1Collector(BaseCollector):
                 card_date_text=card_dt_text,
             )
 
-            protocol = urlparse(link).scheme or "desconhecido"
+            protocol = (
+                item_telemetry.summary_protocol()
+                if item_telemetry is not None
+                else (urlparse(link).scheme or "desconhecido")
+            )
             items.append(
                 CollectedItem(
                     source=self.source_name,
@@ -89,6 +101,7 @@ class G1Collector(BaseCollector):
                     url=link,
                     published_at=published_at,
                     protocol=protocol,
+                    network_telemetry=item_telemetry.to_dict() if item_telemetry else None,
                 )
             )
 
