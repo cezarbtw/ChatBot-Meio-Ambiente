@@ -7,6 +7,7 @@ Sistema de coleta multi-fonte (portais de notícias + redes sociais), inspeção
 ```text
 ChatBot-Meio-Ambiente/
 ├── artifacts/                  # Artefatos leves, métricas e telemetria JSON
+├── frontend/                   # Interface web React + TypeScript + Vite + Tailwind
 ├── scripts/
 │   ├── validate_dataset.py     # Validação e higienização do CSV de treino
 │   ├── benchmark_models.py     # Benchmark unificado (TF-IDF + embeddings + fine-tuning)
@@ -16,11 +17,16 @@ ChatBot-Meio-Ambiente/
 │   ├── config.py               # Caminhos e parâmetros padrão
 │   ├── api/                    # Backend REST FastAPI (OpenAPI, CORS, lifespan)
 │   │   ├── app.py              # Fábrica FastAPI + CORS + lifespan
-│   │   ├── dependencies.py     # Container único em app.state (modelo + SQLite)
+│   │   ├── dependencies.py     # Container único em app.state (modelo + SQLite + ChatBot)
 │   │   ├── extractor.py        # Extração de conteúdo/telemetria a partir de URL
 │   │   ├── main.py             # Entrypoint ASGI (src.api.main:app)
-│   │   ├── routes.py           # Rotas /api/health, classify, collect, news, analytics
+│   │   ├── routes.py           # Rotas /api/health, classify, collect, news, analytics, chat
 │   │   └── schemas.py          # Schemas Pydantic de requisição/resposta
+│   ├── chatbot/                # Assistente conversacional ambiental
+│   │   ├── nlu.py              # NLU determinístico local (intenções e filtros PT-BR)
+│   │   ├── llm.py              # Conector RAG+LLM opcional via API OpenAI-compatível
+│   │   ├── models.py           # Estruturas ChatReply, ChatCitation e ChatClassification
+│   │   └── service.py          # ChatBotService integrando SQLite, BERT+MLP e LLM optional
 │   ├── collectors/             # Coletores multi-fonte com retry e extração de datas
 │   │   ├── base.py             # BaseCollector e sessão HTTP resiliente
 │   │   ├── date_parser.py      # Extração JSON-LD, OpenGraph, RSS, URL e PT-BR
@@ -64,21 +70,26 @@ pip install -r requirements-dev.txt
 
 ## Uso
 
-### 1. Subir a API REST (FastAPI + Swagger `/docs`)
+### 1. Subir a API REST (FastAPI + Swagger `/docs`) e o Frontend Web
 
 ```bash
+# Terminal 1 — Backend FastAPI:
 python scripts/run_api.py --host 127.0.0.1 --port 8000
-# ou via uvicorn diretamente:
-python -m uvicorn src.api.main:app --reload
+
+# Terminal 2 — Frontend React + TypeScript + Vite:
+cd frontend
+npm install
+npm run dev
 ```
 
-Documentação interativa disponível em `http://127.0.0.1:8000/docs`. Principais endpoints:
+Acesse a interface web em `http://localhost:5173` (proxy automático para `/api`) e a documentação OpenAPI em `http://127.0.0.1:8000/docs`. Principais endpoints:
 - `GET /api/health` — status do servidor, modelo carregado e contagem de itens.
 - `POST /api/classify` — classifica título + texto manual ou extrai conteúdo/telemetria de uma URL.
 - `POST /api/collect` — dispara coleta sob demanda nas fontes selecionadas e persiste no SQLite.
 - `GET /api/news` / `GET /api/news/export` — feed paginado com filtros e exportação CSV.
 - `PATCH /api/news/{id}/label` — correção humana do rótulo (*Active Learning*).
 - `GET /api/analytics` — série temporal diária, palavras-chave, estatísticas de rede e métricas do modelo.
+- `POST /api/chat` — assistente conversacional em modo local (NLU + SQLite + BERT/MLP) ou RAG+LLM opcional (configure `CHATBOT_LLM_API_KEY`, `CHATBOT_LLM_MODEL` e `CHATBOT_LLM_BASE_URL`).
 
 ### 2. Validar (ou higienizar) o dataset
 

@@ -274,3 +274,25 @@ def test_collect_news_list_label_review_export_and_analytics(tmp_path):
         assert payload["model_metrics"]["accuracy"] == 0.903
         assert payload["benchmark_summary"]["total_configurations"] == 1
         assert len(payload["sources_available"]) >= 5
+
+        # 6. ChatBot endpoint (/api/chat)
+        chat_trend = client.post(
+            "/api/chat",
+            json={"message": "Qual o panorama ambiental desta semana?"},
+        )
+        assert chat_trend.status_code == 200
+        trend_data = chat_trend.json()
+        assert trend_data["intent"] == "trend_summary"
+        assert trend_data["mode"] == "local"
+        assert len(trend_data["citations"]) >= 1
+
+        chat_clf = client.post(
+            "/api/chat",
+            json={"message": "Classifique: Novo incêndio atinge reserva"},
+        )
+        assert chat_clf.status_code == 200
+        assert chat_clf.json()["intent"] == "classify_text"
+        assert chat_clf.json()["classification"]["label"] == "Ruim"
+
+        # Mensagem vazia -> 422
+        assert client.post("/api/chat", json={"message": "   "}).status_code == 422

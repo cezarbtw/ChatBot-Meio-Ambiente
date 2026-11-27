@@ -5,6 +5,7 @@ from typing import Callable, Optional, Sequence
 
 from fastapi import HTTPException, Request
 
+from src.chatbot import ChatBotService
 from src.collectors import BaseCollector
 from src.config import ARTIFACTS_DIR, DEFAULT_DB_PATH
 from src.nlp.classifier import NewsClassifier
@@ -35,6 +36,11 @@ class AppContainer:
             embedder = getattr(self.classifier, "embedder", None)
             if embedder is not None and hasattr(embedder, "_ensure_loaded"):
                 embedder._ensure_loaded()
+        self.chatbot = ChatBotService(
+            repository=self.repository,
+            classifier=self.classifier,
+            artifacts_dir=self.artifacts_dir,
+        )
 
 
 def get_container(request: Request) -> AppContainer:
@@ -58,3 +64,7 @@ def get_classifier(request: Request) -> NewsClassifier:
             detail="Classificador PLN não carregado no servidor.",
         )
     return container.classifier
+
+
+def get_chatbot(request: Request) -> ChatBotService:
+    return get_container(request).chatbot
