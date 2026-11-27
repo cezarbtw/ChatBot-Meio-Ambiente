@@ -1,6 +1,6 @@
 # ChatBot Meio Ambiente — Classificação de Notícias Ambientais com IA
 
-Sistema de coleta multi-fonte (portais de notícias + redes sociais), inspeção real de protocolos de rede/TLS, persistência histórica em SQLite e classificação automática de conteúdos sobre meio ambiente em **Boa**, **Ruim** ou **Irrelevante**, utilizando embeddings Transformer em português (`neuralmind/bert-large-portuguese-cased` e modelos compatíveis via `AutoModel`) combinados com pipeline `StandardScaler + MLPClassifier` e calibração de confiança.
+Sistema de coleta multi-fonte (portais de notícias + redes sociais), inspeção real de protocolos de rede/TLS, persistência histórica em SQLite, API REST em FastAPI e classificação automática de conteúdos sobre meio ambiente em **Boa**, **Ruim** ou **Irrelevante**, utilizando embeddings Transformer em português (`neuralmind/bert-large-portuguese-cased` e modelos compatíveis via `AutoModel`) combinados com pipeline `StandardScaler + MLPClassifier` e calibração de confiança.
 
 ## Estrutura do Projeto
 
@@ -10,9 +10,17 @@ ChatBot-Meio-Ambiente/
 ├── scripts/
 │   ├── validate_dataset.py     # Validação e higienização do CSV de treino
 │   ├── benchmark_models.py     # Benchmark unificado (TF-IDF + embeddings + fine-tuning)
-│   └── monitor_pipeline.py     # Coleta incremental e agendada no banco SQLite
+│   ├── monitor_pipeline.py     # Coleta incremental e agendada no banco SQLite
+│   └── run_api.py              # CLI para subir o servidor FastAPI (Uvicorn)
 ├── src/
 │   ├── config.py               # Caminhos e parâmetros padrão
+│   ├── api/                    # Backend REST FastAPI (OpenAPI, CORS, lifespan)
+│   │   ├── app.py              # Fábrica FastAPI + CORS + lifespan
+│   │   ├── dependencies.py     # Container único em app.state (modelo + SQLite)
+│   │   ├── extractor.py        # Extração de conteúdo/telemetria a partir de URL
+│   │   ├── main.py             # Entrypoint ASGI (src.api.main:app)
+│   │   ├── routes.py           # Rotas /api/health, classify, collect, news, analytics
+│   │   └── schemas.py          # Schemas Pydantic de requisição/resposta
 │   ├── collectors/             # Coletores multi-fonte com retry e extração de datas
 │   │   ├── base.py             # BaseCollector e sessão HTTP resiliente
 │   │   ├── date_parser.py      # Extração JSON-LD, OpenGraph, RSS, URL e PT-BR
@@ -37,7 +45,7 @@ ChatBot-Meio-Ambiente/
 │       ├── embedder.py         # Extração de embeddings ([CLS] ou mean pooling)
 │       ├── classifier.py       # Treino estratificado, CV, calibração e inferência
 │       └── benchmark.py        # Comparativo entre modelos e exportação JSON
-├── tests/                      # Suíte de testes unitários (pytest)
+├── tests/                      # Suíte de testes unitários e de API (pytest)
 ├── noticias_classificadas.csv  # Base rotulada (Boa, Ruim, Irrelevante)
 ├── TreinarMLP.py               # Entrypoint de treinamento e relatório de métricas
 ├── ClassificarMLP.py           # Entrypoint de coleta, telemetria de rede e classificação
@@ -56,7 +64,23 @@ pip install -r requirements-dev.txt
 
 ## Uso
 
-### 1. Validar (ou higienizar) o dataset
+### 1. Subir a API REST (FastAPI + Swagger `/docs`)
+
+```bash
+python scripts/run_api.py --host 127.0.0.1 --port 8000
+# ou via uvicorn diretamente:
+python -m uvicorn src.api.main:app --reload
+```
+
+Documentação interativa disponível em `http://127.0.0.1:8000/docs`. Principais endpoints:
+- `GET /api/health` — status do servidor, modelo carregado e contagem de itens.
+- `POST /api/classify` — classifica título + texto manual ou extrai conteúdo/telemetria de uma URL.
+- `POST /api/collect` — dispara coleta sob demanda nas fontes selecionadas e persiste no SQLite.
+- `GET /api/news` / `GET /api/news/export` — feed paginado com filtros e exportação CSV.
+- `PATCH /api/news/{id}/label` — correção humana do rótulo (*Active Learning*).
+- `GET /api/analytics` — série temporal diária, palavras-chave, estatísticas de rede e métricas do modelo.
+
+### 2. Validar (ou higienizar) o dataset
 
 ```bash
 python scripts/validate_dataset.py
@@ -64,51 +88,25 @@ python scripts/validate_dataset.py
 python scripts/validate_dataset.py --fix
 ```
 
-### 2. Comparar modelos e configurações (Benchmark)
-
-Compara os 10 classificadores clássicos sobre TF-IDF sem vazamento de vocabulário e, opcionalmente, compara `[CLS]` vs *mean pooling*, `StandardScaler` e cabeças (`mlp`, `mlp_calibrated`, `logreg`, `svc`) exportando `artifacts/benchmark_report.json`:
+### 3. Comparar modelos e configurações (Benchmark)
 
 ```bash
 python trabalho.py --no-plot
 python trabalho.py --include-embeddings --no-plot
 ```
 
-### 3. Treinar o classificador e gerar relatório de métricas
-
-Treina com divisão estratificada, validação cruzada `StratifiedKFold` (5-fold), `StandardScaler` e saída probabilística calibrada, salvando o modelo leve, metadados e `artifacts/metrics_report.json`:
+### 4. Treinar o classificador e gerar relatório de métricas
 
 ```bash
 python TreinarMLP.py --no-plot
-# Exemplo comparando pooling/classificador/limiar de confiança:
 python TreinarMLP.py --pooling mean --classifier svc --max-length 256 --no-plot
 ```
 
-### 4. Coletar, inspecionar protocolos de rede e classificar
+### 5. Coletar, inspecionar protocolos de rede e classificar via CLI
 
 ```bash
-# Todas as fontes padrão (salva telemetria real DNS/TLS/ALPN/HTTP em artifacts/network_telemetry.json):
-python ClassificarMLP.py --source all --limit 5 --no-plot
-
-# Salvando também no banco SQLite histórico (data/monitor_ambiental.db):
 python ClassificarMLP.py --source all --limit 5 --save-db --no-plot
-
-# Fonte específica (g1, agencia_brasil, oeco, mongabay, mastodon, reddit, manual):
-python ClassificarMLP.py --source g1 --no-plot
-python ClassificarMLP.py --source mastodon --limit 5 --no-plot
-python ClassificarMLP.py --source manual --no-plot
-```
-
-### 5. Monitoramento incremental e agendado no SQLite
-
-```bash
-# Execução única com exibição de estatísticas históricas:
 python scripts/monitor_pipeline.py --once --source all --limit 10 --stats
-
-# Execução contínua a cada 30 minutos com deduplicação automática:
-python scripts/monitor_pipeline.py --interval-minutes 30 --source all --limit 10
-
-# Consultar apenas estatísticas já armazenadas no banco:
-python scripts/monitor_pipeline.py --stats-only
 ```
 
 ## Testes
