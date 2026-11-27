@@ -1,12 +1,12 @@
 # ChatBot Meio Ambiente — Classificação de Notícias Ambientais com IA
 
-Sistema de coleta multi-fonte (portais de notícias + redes sociais) e classificação automática de conteúdos sobre meio ambiente em **Boa**, **Ruim** ou **Irrelevante**, utilizando embeddings Transformer em português (`neuralmind/bert-large-portuguese-cased` e modelos compatíveis via `AutoModel`) combinados com pipeline `StandardScaler + MLPClassifier` e calibração de confiança.
+Sistema de coleta multi-fonte (portais de notícias + redes sociais), inspeção real de protocolos de rede/TLS e classificação automática de conteúdos sobre meio ambiente em **Boa**, **Ruim** ou **Irrelevante**, utilizando embeddings Transformer em português (`neuralmind/bert-large-portuguese-cased` e modelos compatíveis via `AutoModel`) combinados com pipeline `StandardScaler + MLPClassifier` e calibração de confiança.
 
 ## Estrutura do Projeto
 
 ```text
 ChatBot-Meio-Ambiente/
-├── artifacts/                  # Artefatos leves, metadados e relatórios JSON
+├── artifacts/                  # Artefatos leves, métricas e telemetria JSON
 ├── scripts/
 │   ├── validate_dataset.py     # Validação e higienização do CSV de treino
 │   └── benchmark_models.py     # Benchmark unificado (TF-IDF + embeddings + fine-tuning)
@@ -18,7 +18,11 @@ ChatBot-Meio-Ambiente/
 │   │   ├── g1.py               # Coletor G1 Meio Ambiente
 │   │   ├── rss.py              # Coletor genérico RSS/Atom (Agência Brasil, ((o))eco, Mongabay)
 │   │   ├── social.py           # Conectores sociais públicos (Mastodon, Reddit)
-│   │   └── manager.py          # Orquestração isolando falhas por fonte
+│   │   └── manager.py          # Orquestração e consolidação da telemetria
+│   ├── network/                # Inspeção de protocolos de rede e captura opcional
+│   │   ├── models.py           # NetworkTelemetry, CertificateInfo e agregações
+│   │   ├── inspector.py        # DNS, TCP, TLS/ALPN (HTTP/2 vs 1.1), cipher, redirects
+│   │   └── packet_capture.py   # Captura opcional controlada via tshark ou scapy
 │   └── nlp/
 │       ├── preprocessing.py    # Limpeza e normalização de texto
 │       ├── dataset.py          # Leitura, limpeza e validação do dataset
@@ -28,7 +32,7 @@ ChatBot-Meio-Ambiente/
 ├── tests/                      # Suíte de testes unitários (pytest)
 ├── noticias_classificadas.csv  # Base rotulada (Boa, Ruim, Irrelevante)
 ├── TreinarMLP.py               # Entrypoint de treinamento e relatório de métricas
-├── ClassificarMLP.py           # Entrypoint de coleta multi-fonte e classificação
+├── ClassificarMLP.py           # Entrypoint de coleta, telemetria de rede e classificação
 └── trabalho.py                 # Entrypoint do benchmark comparativo de modelos
 ```
 
@@ -71,11 +75,14 @@ python TreinarMLP.py --no-plot
 python TreinarMLP.py --pooling mean --classifier svc --max-length 256 --no-plot
 ```
 
-### 4. Coletar e classificar notícias/posts
+### 4. Coletar, inspecionar protocolos de rede e classificar
 
 ```bash
-# Todas as fontes padrão (G1, Agência Brasil, ((o))eco, Mongabay e Mastodon):
+# Todas as fontes padrão (salva telemetria real DNS/TLS/ALPN/HTTP em artifacts/network_telemetry.json):
 python ClassificarMLP.py --source all --limit 5 --no-plot
+
+# Inspecionar também a URL final de cada matéria/post e capturar tráfego local (se tshark/scapy instalado):
+python ClassificarMLP.py --source all --limit 3 --inspect-items --capture-packets --no-plot
 
 # Fonte específica (g1, agencia_brasil, oeco, mongabay, mastodon, reddit, manual):
 python ClassificarMLP.py --source g1 --no-plot

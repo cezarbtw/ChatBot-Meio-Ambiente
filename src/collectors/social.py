@@ -52,12 +52,16 @@ class MastodonCollector(BaseCollector):
         max_retries: int = 2,
         backoff_factor: float = 0.5,
         session: Optional[requests.Session] = None,
+        inspector=None,
+        inspect_network: Optional[bool] = None,
     ) -> None:
         super().__init__(
             timeout=timeout,
             max_retries=max_retries,
             backoff_factor=backoff_factor,
             session=session,
+            inspector=inspector,
+            inspect_network=inspect_network,
         )
         self.instance_url = instance_url.rstrip("/")
         self.hashtags = tuple(hashtags)
@@ -129,6 +133,9 @@ class MastodonCollector(BaseCollector):
                 item = self._status_to_item(status)
                 if item is None or item.url in seen_urls:
                     continue
+                if self.last_telemetry is not None:
+                    item.protocol = self.last_telemetry.summary_protocol()
+                    item.network_telemetry = self.last_telemetry.to_dict()
                 seen_urls.add(item.url)
                 items.append(item)
                 if len(items) >= limit:
@@ -154,12 +161,16 @@ class RedditCollector(BaseCollector):
         max_retries: int = 1,
         backoff_factor: float = 0.5,
         session: Optional[requests.Session] = None,
+        inspector=None,
+        inspect_network: Optional[bool] = None,
     ) -> None:
         super().__init__(
             timeout=timeout,
             max_retries=max_retries,
             backoff_factor=backoff_factor,
             session=session,
+            inspector=inspector,
+            inspect_network=inspect_network,
         )
         self.query = query
         self.search_url = search_url
@@ -169,6 +180,7 @@ class RedditCollector(BaseCollector):
             self.search_url,
             params={"q": self.query, "sort": "new", "limit": limit},
         )
+        telemetry = self.last_telemetry
         payload = response.json()
         children = payload.get("data", {}).get("children", [])
 
@@ -188,7 +200,11 @@ class RedditCollector(BaseCollector):
             if isinstance(created_utc, (int, float)):
                 published_at = datetime.fromtimestamp(created_utc, tz=timezone.utc).isoformat()
 
-            protocol = urlparse(url).scheme or "desconhecido"
+            protocol = (
+                telemetry.summary_protocol()
+                if telemetry is not None
+                else (urlparse(url).scheme or "desconhecido")
+            )
             items.append(
                 CollectedItem(
                     source=self.source_name,
@@ -199,6 +215,7 @@ class RedditCollector(BaseCollector):
                     published_at=published_at,
                     author=author,
                     protocol=protocol,
+                    network_telemetry=telemetry.to_dict() if telemetry else None,
                 )
             )
         return items
