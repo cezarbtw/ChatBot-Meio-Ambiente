@@ -144,3 +144,54 @@ class AnalyticsResponse(BaseModel):
     model_metrics: Optional[Dict[str, Any]] = None
     benchmark_summary: Optional[Dict[str, Any]] = None
     sources_available: List[Dict[str, str]]
+
+
+class ChatMessageIn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=2000)
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000)
+    history: List[ChatMessageIn] = Field(default_factory=list)
+    use_llm: Optional[bool] = Field(
+        default=None,
+        description="Quando None, usa LLM/RAG automaticamente se CHATBOT_LLM_API_KEY estiver configurada.",
+    )
+
+    @validator("message")
+    def _non_blank_message(cls, value: str) -> str:
+        clean = value.strip()
+        if not clean:
+            raise ValueError("A mensagem não pode ser vazia.")
+        return clean
+
+
+class ChatCitationOut(BaseModel):
+    id: int
+    title: str
+    url: str
+    source: Optional[str] = None
+    effective_label: str
+    confidence: float
+    published_date: Optional[str] = None
+    protocol_summary: str
+
+
+class ChatClassificationOut(BaseModel):
+    label: str
+    confidence: float
+    probabilities: Dict[str, float]
+    is_ambiguous: bool
+    ambiguous_reason: Optional[str] = None
+    keywords: List[KeywordMatchOut] = Field(default_factory=list)
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    intent: str
+    mode: str
+    citations: List[ChatCitationOut] = Field(default_factory=list)
+    classification: Optional[ChatClassificationOut] = None
+    suggested_followups: List[str] = Field(default_factory=list)
+    analytics_snapshot: Optional[Dict[str, Any]] = None

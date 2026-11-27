@@ -13,20 +13,21 @@ import type { CollectResponse, NewsItem, NewsLabel } from "../types";
 
 interface FeedViewProps {
   availableSources: Array<{ name: string; source_type: string }>;
+  initialQuery?: string;
   onDataMutated?: () => void;
 }
 
 const PAGE_SIZE = 12;
 const LABELS: NewsLabel[] = ["Boa", "Ruim", "Irrelevante"];
 
-export function FeedView({ availableSources, onDataMutated }: FeedViewProps) {
+export function FeedView({ availableSources, initialQuery = "", onDataMutated }: FeedViewProps) {
   const [items, setItems] = useState<NewsItem[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [labelFilter, setLabelFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
   const [sourceTypeFilter, setSourceTypeFilter] = useState("");
@@ -83,6 +84,11 @@ export function FeedView({ availableSources, onDataMutated }: FeedViewProps) {
     },
     [buildFilters, offset]
   );
+
+  useEffect(() => {
+    setOffset(0);
+    setQuery(initialQuery);
+  }, [initialQuery]);
 
   useEffect(() => {
     void loadFeed(offset);

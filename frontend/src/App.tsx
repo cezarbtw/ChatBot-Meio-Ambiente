@@ -1,13 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
-import { BarChart3, Leaf, Newspaper, Sparkles } from "lucide-react";
+import { BarChart3, Leaf, MessageSquare, Newspaper, Sparkles } from "lucide-react";
 
 import { ApiError, apiClient } from "./api/client";
-import type { AnalyticsResponse, HealthResponse } from "./types";
+import type { AnalyticsResponse, ChatMessageItem, HealthResponse } from "./types";
+import { ChatView } from "./views/ChatView";
 import { ClassifierView } from "./views/ClassifierView";
 import { DashboardView } from "./views/DashboardView";
 import { FeedView } from "./views/FeedView";
 
-type TabId = "dashboard" | "classifier" | "feed";
+type TabId = "dashboard" | "classifier" | "feed" | "chat";
+
+const INITIAL_CHAT_MESSAGES: ChatMessageItem[] = [
+  {
+    id: "welcome",
+    role: "assistant",
+    content:
+      "Olá! Sou o assistente do EcoMonitor IA. Posso resumir tendências do acervo ambiental, listar notícias por tema ou classe, mostrar telemetria de protocolos de rede ou classificar um texto que você enviar (ex.: 'Classifique: ...').",
+  },
+];
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
@@ -16,6 +26,8 @@ export function App() {
   const [analyticsSource, setAnalyticsSource] = useState("");
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [feedSearchSeed, setFeedSearchSeed] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMessageItem[]>(INITIAL_CHAT_MESSAGES);
 
   const loadAnalyticsAndHealth = useCallback(async () => {
     setLoadingAnalytics(true);
@@ -46,6 +58,7 @@ export function App() {
     { id: "dashboard", label: "Dashboard Analítico", icon: BarChart3 },
     { id: "classifier", label: "Classificador IA", icon: Sparkles },
     { id: "feed", label: "Feed & Curadoria", icon: Newspaper },
+    { id: "chat", label: "ChatBot IA", icon: MessageSquare },
   ];
 
   return (
@@ -130,7 +143,19 @@ export function App() {
         {activeTab === "feed" && (
           <FeedView
             availableSources={analytics?.sources_available ?? []}
+            initialQuery={feedSearchSeed}
             onDataMutated={() => void loadAnalyticsAndHealth()}
+          />
+        )}
+
+        {activeTab === "chat" && (
+          <ChatView
+            messages={chatMessages}
+            onMessagesChange={setChatMessages}
+            onOpenFeedWithQuery={(query) => {
+              setFeedSearchSeed(query);
+              setActiveTab("feed");
+            }}
           />
         )}
       </main>

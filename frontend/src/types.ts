@@ -178,3 +178,44 @@ export interface AnalyticsResponse {
     source_type: string;
   }>;
 }
+
+export interface ChatCitation {
+  id: number;
+  title: string;
+  url: string;
+  source: string | null;
+  effective_label: NewsLabel;
+  confidence: number;
+  published_date: string | null;
+  protocol_summary: string;
+}
+
+export interface ChatClassification {
+  label: NewsLabel;
+  confidence: number;
+  probabilities: Record<string, number>;
+  is_ambiguous: boolean;
+  ambiguous_reason: string | null;
+  keywords: KeywordMatch[];
+}
+
+export interface ChatResponse {
+  answer: string;
+  intent: string;
+  mode: "local" | "llm_rag" | string;
+  citations: ChatCitation[];
+  classification: ChatClassification | null;
+  suggested_followups: string[];
+  analytics_snapshot?: Record<string, unknown> | null;
+}
+
+export interface ChatMessageItem {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  intent?: string;
+  mode?: string;
+  citations?: ChatCitation[];
+  classification?: ChatClassification | null;
+  suggestedFollowups?: string[];
+}

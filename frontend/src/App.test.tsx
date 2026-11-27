@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type {
   AnalyticsResponse,
+  ChatResponse,
   ClassifyResponse,
   CollectResponse,
   HealthResponse,
@@ -180,6 +181,28 @@ describe("EcoMonitor IA App", () => {
           reviews_count: 1,
         });
       }
+      if (url.includes("/api/chat") && init?.method === "POST") {
+        const res: ChatResponse = {
+          answer: "Encontrei 1 registro sobre desmatamento.",
+          intent: "news_search",
+          mode: "local",
+          citations: [
+            {
+              id: 10,
+              title: "Temperatura varia no litoral",
+              url: "https://g1.globo.com/10",
+              source: "g1",
+              effective_label: "Irrelevante",
+              confidence: 0.56,
+              published_date: "2026-11-26",
+              protocol_summary: "HTTP/1.1 | ALPN h2 | TLSv1.3",
+            },
+          ],
+          classification: null,
+          suggested_followups: ["Resumo dos protocolos de rede identificados"],
+        };
+        return okJson(res);
+      }
       if (url.includes("/api/news")) {
         const listRes: NewsListResponse = {
           items: [initialNewsItem],
@@ -232,5 +255,17 @@ describe("EcoMonitor IA App", () => {
     await waitFor(() => {
       expect(screen.getByText(/Revisado \(1x · IA: Ruim\)/i)).toBeInTheDocument();
     });
+
+    // 4. Navega para ChatBot IA e faz consulta ao acervo
+    fireEvent.click(screen.getByRole("button", { name: /ChatBot IA/i }));
+    fireEvent.change(screen.getByLabelText("Mensagem para o ChatBot Ambiental"), {
+      target: { value: "Mostre notícias sobre desmatamento" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Enviar/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Encontrei 1 registro sobre desmatamento.")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Fontes Citadas (1)")).toBeInTheDocument();
   });
 });

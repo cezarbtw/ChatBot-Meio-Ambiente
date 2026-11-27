@@ -17,11 +17,16 @@ ChatBot-Meio-Ambiente/
 │   ├── config.py               # Caminhos e parâmetros padrão
 │   ├── api/                    # Backend REST FastAPI (OpenAPI, CORS, lifespan)
 │   │   ├── app.py              # Fábrica FastAPI + CORS + lifespan
-│   │   ├── dependencies.py     # Container único em app.state (modelo + SQLite)
+│   │   ├── dependencies.py     # Container único em app.state (modelo + SQLite + ChatBot)
 │   │   ├── extractor.py        # Extração de conteúdo/telemetria a partir de URL
 │   │   ├── main.py             # Entrypoint ASGI (src.api.main:app)
-│   │   ├── routes.py           # Rotas /api/health, classify, collect, news, analytics
+│   │   ├── routes.py           # Rotas /api/health, classify, collect, news, analytics, chat
 │   │   └── schemas.py          # Schemas Pydantic de requisição/resposta
+│   ├── chatbot/                # Assistente conversacional ambiental
+│   │   ├── nlu.py              # NLU determinístico local (intenções e filtros PT-BR)
+│   │   ├── llm.py              # Conector RAG+LLM opcional via API OpenAI-compatível
+│   │   ├── models.py           # Estruturas ChatReply, ChatCitation e ChatClassification
+│   │   └── service.py          # ChatBotService integrando SQLite, BERT+MLP e LLM optional
 │   ├── collectors/             # Coletores multi-fonte com retry e extração de datas
 │   │   ├── base.py             # BaseCollector e sessão HTTP resiliente
 │   │   ├── date_parser.py      # Extração JSON-LD, OpenGraph, RSS, URL e PT-BR
@@ -84,6 +89,7 @@ Acesse a interface web em `http://localhost:5173` (proxy automático para `/api`
 - `GET /api/news` / `GET /api/news/export` — feed paginado com filtros e exportação CSV.
 - `PATCH /api/news/{id}/label` — correção humana do rótulo (*Active Learning*).
 - `GET /api/analytics` — série temporal diária, palavras-chave, estatísticas de rede e métricas do modelo.
+- `POST /api/chat` — assistente conversacional em modo local (NLU + SQLite + BERT/MLP) ou RAG+LLM opcional (configure `CHATBOT_LLM_API_KEY`, `CHATBOT_LLM_MODEL` e `CHATBOT_LLM_BASE_URL`).
 
 ### 2. Validar (ou higienizar) o dataset
 

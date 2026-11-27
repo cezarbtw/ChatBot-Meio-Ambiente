@@ -1,5 +1,6 @@
 import type {
   AnalyticsResponse,
+  ChatResponse,
   ClassifyRequest,
   ClassifyResponse,
   CollectResponse,
@@ -122,5 +123,16 @@ export const apiClient = {
 
   getExportUrl(filters: NewsQueryFilters = {}): string {
     return `${API_BASE}/api/news/export${toQueryString(filters)}`;
+  },
+
+  chat(payload: {
+    message: string;
+    history?: Array<{ role: "user" | "assistant"; content: string }>;
+    use_llm?: boolean;
+  }): Promise<ChatResponse> {
+    return requestJson<ChatResponse>("/api/chat", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   },
 };

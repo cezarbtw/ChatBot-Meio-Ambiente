@@ -8,10 +8,20 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
-from src.api.dependencies import AppContainer, get_classifier, get_container, get_repository
+from src.api.dependencies import (
+    AppContainer,
+    get_chatbot,
+    get_classifier,
+    get_container,
+    get_repository,
+)
 from src.api.extractor import UrlExtractionError, fetch_and_extract_url
 from src.api.schemas import (
     AnalyticsResponse,
+    ChatCitationOut,
+    ChatClassificationOut,
+    ChatRequest,
+    ChatResponse,
     ClassifyRequest,
     ClassifyResponse,
     CollectRequest,
@@ -357,4 +367,53 @@ def get_analytics(
         ),
         benchmark_summary=benchmark_summary,
         sources_available=sources_available,
+    )
+
+
+@router.post("/chat", response_model=ChatResponse)
+def chat_with_assistant(
+    payload: ChatRequest,
+    chatbot=Depends(get_chatbot),
+) -> ChatResponse:
+    """Responde consultas sobre o acervo, protocolos ou classifica texto enviado no chat."""
+    history = [{"role": m.role, "content": m.content} for m in payload.history]
+    reply = chatbot.reply(
+        message=payload.message,
+        history=history,
+        use_llm=payload.use_llm,
+    )
+    classification_out = None
+    if reply.classification is not None:
+        classification_out = ChatClassificationOut(
+            label=reply.classification.label,
+            confidence=reply.classification.confidence,
+            probabilities=reply.classification.probabilities,
+            is_ambiguous=reply.classification.is_ambiguous,
+            ambiguous_reason=reply.classification.ambiguous_reason,
+            keywords=[
+                KeywordMatchOut(keyword=k["keyword"], occurrences=k["occurrences"])
+                for k in reply.classification.keywords
+            ],
+        )
+
+    return ChatResponse(
+        answer=reply.answer,
+        intent=reply.intent,
+        mode=reply.mode,
+        citations=[
+            ChatCitationOut(
+                id=c.id,
+                title=c.title,
+                url=c.url,
+                source=c.source,
+                effective_label=c.effective_label,
+                confidence=c.confidence,
+                published_date=c.published_date,
+                protocol_summary=c.protocol_summary,
+            )
+            for c in reply.citations
+        ],
+        classification=classification_out,
+        suggested_followups=reply.suggested_followups,
+        analytics_snapshot=reply.analytics_snapshot,
     )
