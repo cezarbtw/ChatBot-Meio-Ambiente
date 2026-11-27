@@ -1,15 +1,19 @@
-"""Script de coleta no G1 e classificação de notícias ambientais com confiança."""
+"""Script de coleta multi-fonte (portais ambientais e redes sociais) e classificação."""
 
 import argparse
 from pathlib import Path
-import re
 from typing import List, Tuple
 
-from bs4 import BeautifulSoup
 import matplotlib.pyplot as plt
 import pandas as pd
-import requests
 
+from src.collectors import (
+    COLLECTOR_FACTORIES,
+    CollectedItem,
+    CollectorResult,
+    G1Collector,
+    collect_from_sources,
+)
 from src.config import ARTIFACTS_DIR
 from src.nlp.classifier import NewsClassifier
 
@@ -31,39 +35,9 @@ CORES_CLASSE = {
 }
 
 
-def extrair_data_do_link(link: str) -> str:
-    """Extrai data YYYY-MM-DD a partir do padrão de URL do G1."""
-    if not link:
-        return "Data não disponível"
-    match = re.search(r"/noticia/(\d{4}/\d{2}/\d{2})/", link)
-    if match:
-        return match.group(1).replace("/", "-")
-    return "Data não disponível"
-
-
-def coletar_noticias_g1() -> List[Tuple[str, str, str, str, str]]:
-    """Coleta até 10 manchetes e resumos recentes da editoria Meio Ambiente do G1."""
-    url = "https://g1.globo.com/meio-ambiente/"
-    response = requests.get(url, timeout=15)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.content, "html.parser")
-
-    noticias_coletadas: List[Tuple[str, str, str, str, str]] = []
-    artigos = soup.select(".feed-post")[:10]
-    for artigo in artigos:
-        titulo_tag = artigo.select_one(".feed-post-body-title")
-        link_tag = artigo.select_one("a")
-        texto_tag = artigo.select_one(".feed-post-body-resumo")
-
-        if titulo_tag and link_tag:
-            titulo = titulo_tag.get_text(strip=True)
-            texto = texto_tag.get_text(strip=True) if texto_tag else ""
-            link = link_tag.get("href") or ""
-            protocolo = link.split(":")[0] if link else "desconhecido"
-            data = extrair_data_do_link(link)
-            noticias_coletadas.append((titulo, texto, link, protocolo, data))
-
-    return noticias_coletadas
+def coletar_noticias_g1(limit: int = 10) -> List[CollectedItem]:
+    """Compatibilidade: coleta notícias recentes do G1 Meio Ambiente."""
+    return G1Collector().collect(limit=limit)
 
 
 def plot_daily_counts(df_resultados: pd.DataFrame) -> None:
@@ -92,14 +66,21 @@ def plot_daily_counts(df_resultados: pd.DataFrame) -> None:
 
 
 def main() -> None:
+    source_choices = ("all", "manual") + tuple(sorted(COLLECTOR_FACTORIES))
     parser = argparse.ArgumentParser(
-        description="Classifica notícias coletadas do G1 ou exemplos manuais."
+        description="Coleta notícias/posts ambientais e classifica com confiança."
     )
     parser.add_argument(
         "--source",
-        choices=("g1", "manual"),
+        choices=source_choices,
         default="g1",
-        help="Origem das notícias a classificar.",
+        help="Fonte da coleta ('all' executa todos os portais e redes padrão).",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        help="Máximo de itens por fonte.",
     )
     parser.add_argument("--artifacts-dir", type=Path, default=ARTIFACTS_DIR)
     parser.add_argument("--no-plot", action="store_true")
@@ -107,45 +88,73 @@ def main() -> None:
 
     classifier = NewsClassifier.load(args.artifacts_dir)
 
+    reports: List[CollectorResult] = []
     if args.source == "manual":
-        noticias = [
-            (titulo, texto, "Não informado", "Não informado", "Não informado")
+        items = [
+            CollectedItem(
+                source="manual",
+                source_type="manual",
+                title=titulo,
+                text=texto,
+                url="Não informado",
+                published_at=None,
+                protocol="Não informado",
+            )
             for titulo, texto in NOTICIAS_MANUAIS
         ]
+    elif args.source == "all":
+        items, reports = collect_from_sources(limit_per_source=args.limit)
     else:
-        noticias = coletar_noticias_g1()
+        items, reports = collect_from_sources(
+            sources=[args.source], limit_per_source=args.limit
+        )
+
+    if reports:
+        print("=== Resumo da Coleta ===")
+        for rep in reports:
+            status = "OK" if rep.success else f"ERRO ({rep.error})"
+            print(
+                f"  [{rep.source_type}] {rep.source}: {len(rep.items)} item(ns) | "
+                f"{status} | {rep.duration_ms:.0f} ms"
+            )
+        print()
 
     results = classifier.predict_many_detailed(
-        [(titulo, texto) for titulo, texto, _, _, _ in noticias]
+        [(item.title, item.text) for item in items]
     )
 
     dados_resultado = []
-    for i, ((titulo, _texto, link, protocolo, data), pred) in enumerate(
-        zip(noticias, results), start=1
-    ):
+    for i, (item, pred) in enumerate(zip(items, results), start=1):
+        data_label = (
+            "Não informado" if item.source == "manual" else item.published_date
+        )
         dados_resultado.append(
             {
-                "Data": data,
+                "Fonte": item.source,
+                "Tipo": item.source_type,
+                "Data": data_label,
                 "Classe": pred.label,
                 "Confiança": pred.confidence,
                 "Ambíguo": pred.is_ambiguous,
-                "Título": titulo,
-                "Link": link,
+                "Título": item.title,
+                "Link": item.url,
             }
         )
         probs_fmt = ", ".join(
             f"{cls_name}: {prob:.1%}"
             for cls_name, prob in sorted(pred.probabilities.items())
         )
-        print(f"Notícia {i}:")
-        print(f"  Título        : {titulo}")
+        print(f"Item {i} [{item.source}/{item.source_type}]:")
+        print(f"  Título        : {item.title}")
         print(f"  Classe        : {pred.label} ({pred.confidence:.1%})")
         print(f"  Probabilidades: {probs_fmt}")
         if pred.is_ambiguous:
             print(f"  [AMBÍGUO]     : {pred.ambiguous_reason}")
-        print(f"  Link          : {link}")
-        print(f"  Protocolo     : {protocolo}")
-        print(f"  Data          : {data}")
+        if item.author:
+            print(f"  Autor         : {item.author}")
+        print(f"  Link          : {item.url}")
+        print(f"  Protocolo     : {item.protocol}")
+        print(f"  Data          : {data_label}")
 
     if not args.no_plot and dados_resultado:
         plot_daily_counts(pd.DataFrame(dados_resultado))

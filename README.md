@@ -1,6 +1,6 @@
 # ChatBot Meio Ambiente — Classificação de Notícias Ambientais com IA
 
-Sistema de coleta e classificação automática de notícias sobre meio ambiente em **Boa**, **Ruim** ou **Irrelevante**, utilizando embeddings Transformer em português (`neuralmind/bert-large-portuguese-cased` e modelos compatíveis via `AutoModel`) combinados com pipeline `StandardScaler + MLPClassifier` e calibração de confiança.
+Sistema de coleta multi-fonte (portais de notícias + redes sociais) e classificação automática de conteúdos sobre meio ambiente em **Boa**, **Ruim** ou **Irrelevante**, utilizando embeddings Transformer em português (`neuralmind/bert-large-portuguese-cased` e modelos compatíveis via `AutoModel`) combinados com pipeline `StandardScaler + MLPClassifier` e calibração de confiança.
 
 ## Estrutura do Projeto
 
@@ -12,6 +12,13 @@ ChatBot-Meio-Ambiente/
 │   └── benchmark_models.py     # Benchmark unificado (TF-IDF + embeddings + fine-tuning)
 ├── src/
 │   ├── config.py               # Caminhos e parâmetros padrão
+│   ├── collectors/             # Coletores multi-fonte com retry e extração de datas
+│   │   ├── base.py             # BaseCollector e sessão HTTP resiliente
+│   │   ├── date_parser.py      # Extração JSON-LD, OpenGraph, RSS, URL e PT-BR
+│   │   ├── g1.py               # Coletor G1 Meio Ambiente
+│   │   ├── rss.py              # Coletor genérico RSS/Atom (Agência Brasil, ((o))eco, Mongabay)
+│   │   ├── social.py           # Conectores sociais públicos (Mastodon, Reddit)
+│   │   └── manager.py          # Orquestração isolando falhas por fonte
 │   └── nlp/
 │       ├── preprocessing.py    # Limpeza e normalização de texto
 │       ├── dataset.py          # Leitura, limpeza e validação do dataset
@@ -21,7 +28,7 @@ ChatBot-Meio-Ambiente/
 ├── tests/                      # Suíte de testes unitários (pytest)
 ├── noticias_classificadas.csv  # Base rotulada (Boa, Ruim, Irrelevante)
 ├── TreinarMLP.py               # Entrypoint de treinamento e relatório de métricas
-├── ClassificarMLP.py           # Entrypoint de coleta (G1) / exemplos manuais e inferência
+├── ClassificarMLP.py           # Entrypoint de coleta multi-fonte e classificação
 └── trabalho.py                 # Entrypoint do benchmark comparativo de modelos
 ```
 
@@ -64,13 +71,15 @@ python TreinarMLP.py --no-plot
 python TreinarMLP.py --pooling mean --classifier svc --max-length 256 --no-plot
 ```
 
-### 4. Classificar notícias com probabilidade e detecção de ambiguidade
+### 4. Coletar e classificar notícias/posts
 
 ```bash
-# Coletando do G1 Meio Ambiente:
-python ClassificarMLP.py --source g1 --no-plot
+# Todas as fontes padrão (G1, Agência Brasil, ((o))eco, Mongabay e Mastodon):
+python ClassificarMLP.py --source all --limit 5 --no-plot
 
-# Testando notícias manuais de exemplo:
+# Fonte específica (g1, agencia_brasil, oeco, mongabay, mastodon, reddit, manual):
+python ClassificarMLP.py --source g1 --no-plot
+python ClassificarMLP.py --source mastodon --limit 5 --no-plot
 python ClassificarMLP.py --source manual --no-plot
 ```
 
