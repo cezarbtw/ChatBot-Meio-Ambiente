@@ -1,8 +1,8 @@
-"""Script de coleta multi-fonte (portais ambientais e redes sociais) e classificação."""
+"""Script de coleta multi-fonte, inspeção de protocolos de rede e classificação."""
 
 import argparse
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -14,8 +14,11 @@ from src.collectors import (
     G1Collector,
     collect_from_sources,
 )
-from src.config import ARTIFACTS_DIR
+from src.collectors.manager import build_telemetry_report, export_telemetry_report
+from src.config import ARTIFACTS_DIR, DEFAULT_DB_PATH, TELEMETRY_FILENAME
+from src.network import PacketCaptureSummary, capture_network_traffic
 from src.nlp.classifier import NewsClassifier
+from src.storage import NewsRepository, create_db_engine, init_db
 
 NOTICIAS_MANUAIS: List[Tuple[str, str]] = [
     (
@@ -68,7 +71,7 @@ def plot_daily_counts(df_resultados: pd.DataFrame) -> None:
 def main() -> None:
     source_choices = ("all", "manual") + tuple(sorted(COLLECTOR_FACTORIES))
     parser = argparse.ArgumentParser(
-        description="Coleta notícias/posts ambientais e classifica com confiança."
+        description="Coleta notícias/posts ambientais, inspeciona protocolos e classifica com confiança."
     )
     parser.add_argument(
         "--source",
@@ -82,11 +85,42 @@ def main() -> None:
         default=10,
         help="Máximo de itens por fonte.",
     )
+    parser.add_argument(
+        "--inspect-items",
+        action="store_true",
+        help="Inspeciona individualmente a URL final de cada item coletado.",
+    )
+    parser.add_argument(
+        "--export-telemetry",
+        type=Path,
+        default=ARTIFACTS_DIR / TELEMETRY_FILENAME,
+        help="Caminho JSON para salvar o resumo de telemetria de rede.",
+    )
+    parser.add_argument(
+        "--capture-packets",
+        action="store_true",
+        help="Executa captura opcional de pacotes em interface local (requer tshark ou scapy).",
+    )
+    parser.add_argument("--capture-interface", type=str, default=None)
+    parser.add_argument("--capture-seconds", type=int, default=5)
+    parser.add_argument(
+        "--save-db",
+        action="store_true",
+        help="Persiste os itens coletados, classificações e telemetria no banco SQLite.",
+    )
+    parser.add_argument("--db-path", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument("--artifacts-dir", type=Path, default=ARTIFACTS_DIR)
     parser.add_argument("--no-plot", action="store_true")
     args = parser.parse_args()
 
     classifier = NewsClassifier.load(args.artifacts_dir)
+
+    capture_summary: Optional[PacketCaptureSummary] = None
+    if args.capture_packets:
+        capture_summary = capture_network_traffic(
+            interface=args.capture_interface,
+            duration_seconds=args.capture_seconds,
+        )
 
     reports: List[CollectorResult] = []
     if args.source == "manual":
@@ -103,25 +137,76 @@ def main() -> None:
             for titulo, texto in NOTICIAS_MANUAIS
         ]
     elif args.source == "all":
-        items, reports = collect_from_sources(limit_per_source=args.limit)
+        items, reports = collect_from_sources(
+            limit_per_source=args.limit,
+            inspect_items=args.inspect_items,
+        )
     else:
         items, reports = collect_from_sources(
-            sources=[args.source], limit_per_source=args.limit
+            sources=[args.source],
+            limit_per_source=args.limit,
+            inspect_items=args.inspect_items,
         )
 
     if reports:
-        print("=== Resumo da Coleta ===")
+        telemetry_report = build_telemetry_report(
+            reports, items=items, capture_summary=capture_summary
+        )
+        export_telemetry_report(telemetry_report, output_path=args.export_telemetry)
+
+        print("=== Resumo da Coleta & Protocolos de Rede ===")
         for rep in reports:
             status = "OK" if rep.success else f"ERRO ({rep.error})"
+            tel = rep.source_telemetry or {}
+            proto_str = ""
+            if tel:
+                ips = ", ".join((tel.get("resolved_ips") or [])[:2]) or "-"
+                proto_str = (
+                    f" | {tel.get('http_version') or '-'} "
+                    f"(ALPN: {tel.get('alpn_protocol') or '-'}, "
+                    f"TLS: {tel.get('tls_version') or '-'}, "
+                    f"HTTP {tel.get('status_code') or '-'}, IP: {ips})"
+                )
             print(
                 f"  [{rep.source_type}] {rep.source}: {len(rep.items)} item(ns) | "
-                f"{status} | {rep.duration_ms:.0f} ms"
+                f"{status} | {rep.duration_ms:.0f} ms{proto_str}"
             )
-        print()
+        summary = telemetry_report["summary"]
+        print(
+            f"  Resumo agregado -> ALPN: {summary['alpn_protocols']} | "
+            f"TLS: {summary['tls_versions']} | HTTP: {summary['http_versions']} | "
+            f"DNS médio: {summary['avg_dns_ms']} ms | TLS médio: {summary['avg_tls_ms']} ms"
+        )
+        print(f"  Telemetria salva em: {args.export_telemetry}\n")
+
+    if capture_summary is not None:
+        print("=== Captura de Pacotes (Modo Opcional) ===")
+        if capture_summary.available and not capture_summary.error:
+            print(
+                f"  Backend: {capture_summary.backend} | Pacotes: {capture_summary.total_packets} | "
+                f"Protocolos: {capture_summary.protocol_counts}\n"
+            )
+        else:
+            print(f"  Aviso: {capture_summary.error}\n")
 
     results = classifier.predict_many_detailed(
         [(item.title, item.text) for item in items]
     )
+
+    if args.save_db and items:
+        engine = create_db_engine(args.db_path)
+        init_db(engine)
+        repo = NewsRepository(engine)
+        batch_res = repo.save_collection_batch(
+            sources_requested=[args.source],
+            items_with_predictions=list(zip(items, results)),
+            reports=reports,
+        )
+        print(
+            f"=== Banco SQLite ({args.db_path}) ===\n"
+            f"  Run #{batch_res.run_id}: {batch_res.items_inserted} inserido(s), "
+            f"{batch_res.items_deduplicated} deduplicado(s)\n"
+        )
 
     dados_resultado = []
     for i, (item, pred) in enumerate(zip(items, results), start=1):
@@ -154,6 +239,15 @@ def main() -> None:
             print(f"  Autor         : {item.author}")
         print(f"  Link          : {item.url}")
         print(f"  Protocolo     : {item.protocol}")
+        if item.network_telemetry:
+            tel = item.network_telemetry
+            cert = tel.get("certificate") or {}
+            print(
+                f"  Rede/TLS      : IP={','.join((tel.get('resolved_ips') or [])[:2])} | "
+                f"Cipher={tel.get('cipher_suite') or '-'} | "
+                f"Emissor={cert.get('issuer_org') or cert.get('issuer_cn') or '-'} | "
+                f"DNS={tel.get('dns_ms')}ms TLS={tel.get('tls_ms')}ms TTFB={tel.get('ttfb_ms')}ms"
+            )
         print(f"  Data          : {data_label}")
 
     if not args.no_plot and dados_resultado:

@@ -5,6 +5,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_PATH = PROJECT_ROOT / "noticias_classificadas.csv"
 ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
+DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "monitor_ambiental.db"
 
 DEFAULT_BERT_MODEL = "neuralmind/bert-large-portuguese-cased"
 DEFAULT_MAX_LENGTH = 256
@@ -38,3 +39,4 @@ ENCODER_FILENAME = "label_encoder.pkl"
 METADATA_FILENAME = "model_metadata.json"
 METRICS_FILENAME = "metrics_report.json"
 BENCHMARK_FILENAME = "benchmark_report.json"
+TELEMETRY_FILENAME = "network_telemetry.json"

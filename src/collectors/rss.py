@@ -38,12 +38,16 @@ class RssNewsCollector(BaseCollector):
         max_retries: int = 2,
         backoff_factor: float = 0.5,
         session: Optional[requests.Session] = None,
+        inspector=None,
+        inspect_network: Optional[bool] = None,
     ) -> None:
         super().__init__(
             timeout=timeout,
             max_retries=max_retries,
             backoff_factor=backoff_factor,
             session=session,
+            inspector=inspector,
+            inspect_network=inspect_network,
         )
         self.source_name = source_name
         self.feed_url = feed_url
@@ -125,6 +129,7 @@ class RssNewsCollector(BaseCollector):
 
     def collect(self, limit: int = 10) -> List[CollectedItem]:
         response = self._get(self.feed_url)
+        telemetry = self.last_telemetry
         root = ET.fromstring(response.content.strip())
 
         items: List[CollectedItem] = []
@@ -133,6 +138,9 @@ class RssNewsCollector(BaseCollector):
             for item in rss_items[:limit]:
                 parsed = self._parse_rss_item(item)
                 if parsed is not None:
+                    if telemetry is not None:
+                        parsed.protocol = telemetry.summary_protocol()
+                        parsed.network_telemetry = telemetry.to_dict()
                     items.append(parsed)
             return items
 
@@ -140,5 +148,8 @@ class RssNewsCollector(BaseCollector):
         for entry in atom_entries[:limit]:
             parsed = self._parse_atom_entry(entry)
             if parsed is not None:
+                if telemetry is not None:
+                    parsed.protocol = telemetry.summary_protocol()
+                    parsed.network_telemetry = telemetry.to_dict()
                 items.append(parsed)
         return items

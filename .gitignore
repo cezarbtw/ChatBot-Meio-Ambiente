@@ -19,10 +19,12 @@ bert_finetuned_noticias/
 *.bin
 .cache/
 
-# Banco local / logs
+# Banco local / logs / telemetria de execução ao vivo
+data/
 *.db
 *.sqlite3
 *.log
+artifacts/network_telemetry.json
 
 # Frontend (futuro)
 frontend/node_modules/
