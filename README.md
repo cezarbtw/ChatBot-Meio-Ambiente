@@ -7,6 +7,7 @@ Sistema de coleta multi-fonte (portais de notícias + redes sociais), inspeção
 ```text
 ChatBot-Meio-Ambiente/
 ├── artifacts/                  # Artefatos leves, métricas e telemetria JSON
+├── frontend/                   # Interface web React + TypeScript + Vite + Tailwind
 ├── scripts/
 │   ├── validate_dataset.py     # Validação e higienização do CSV de treino
 │   ├── benchmark_models.py     # Benchmark unificado (TF-IDF + embeddings + fine-tuning)
@@ -64,15 +65,19 @@ pip install -r requirements-dev.txt
 
 ## Uso
 
-### 1. Subir a API REST (FastAPI + Swagger `/docs`)
+### 1. Subir a API REST (FastAPI + Swagger `/docs`) e o Frontend Web
 
 ```bash
+# Terminal 1 — Backend FastAPI:
 python scripts/run_api.py --host 127.0.0.1 --port 8000
-# ou via uvicorn diretamente:
-python -m uvicorn src.api.main:app --reload
+
+# Terminal 2 — Frontend React + TypeScript + Vite:
+cd frontend
+npm install
+npm run dev
 ```
 
-Documentação interativa disponível em `http://127.0.0.1:8000/docs`. Principais endpoints:
+Acesse a interface web em `http://localhost:5173` (proxy automático para `/api`) e a documentação OpenAPI em `http://127.0.0.1:8000/docs`. Principais endpoints:
 - `GET /api/health` — status do servidor, modelo carregado e contagem de itens.
 - `POST /api/classify` — classifica título + texto manual ou extrai conteúdo/telemetria de uma URL.
 - `POST /api/collect` — dispara coleta sob demanda nas fontes selecionadas e persiste no SQLite.

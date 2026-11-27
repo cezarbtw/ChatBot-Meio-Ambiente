@@ -29,6 +29,7 @@ artifacts/network_telemetry.json
 # Frontend (futuro)
 frontend/node_modules/
 frontend/dist/
+*.tsbuildinfo
 
 # Sistema
 .DS_Store
