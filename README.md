@@ -1,6 +1,6 @@
 # ChatBot Meio Ambiente — Classificação de Notícias Ambientais com IA
 
-Sistema de coleta multi-fonte (portais de notícias + redes sociais), inspeção real de protocolos de rede/TLS e classificação automática de conteúdos sobre meio ambiente em **Boa**, **Ruim** ou **Irrelevante**, utilizando embeddings Transformer em português (`neuralmind/bert-large-portuguese-cased` e modelos compatíveis via `AutoModel`) combinados com pipeline `StandardScaler + MLPClassifier` e calibração de confiança.
+Sistema de coleta multi-fonte (portais de notícias + redes sociais), inspeção real de protocolos de rede/TLS, persistência histórica em SQLite e classificação automática de conteúdos sobre meio ambiente em **Boa**, **Ruim** ou **Irrelevante**, utilizando embeddings Transformer em português (`neuralmind/bert-large-portuguese-cased` e modelos compatíveis via `AutoModel`) combinados com pipeline `StandardScaler + MLPClassifier` e calibração de confiança.
 
 ## Estrutura do Projeto
 
@@ -9,7 +9,8 @@ ChatBot-Meio-Ambiente/
 ├── artifacts/                  # Artefatos leves, métricas e telemetria JSON
 ├── scripts/
 │   ├── validate_dataset.py     # Validação e higienização do CSV de treino
-│   └── benchmark_models.py     # Benchmark unificado (TF-IDF + embeddings + fine-tuning)
+│   ├── benchmark_models.py     # Benchmark unificado (TF-IDF + embeddings + fine-tuning)
+│   └── monitor_pipeline.py     # Coleta incremental e agendada no banco SQLite
 ├── src/
 │   ├── config.py               # Caminhos e parâmetros padrão
 │   ├── collectors/             # Coletores multi-fonte com retry e extração de datas
@@ -23,6 +24,13 @@ ChatBot-Meio-Ambiente/
 │   │   ├── models.py           # NetworkTelemetry, CertificateInfo e agregações
 │   │   ├── inspector.py        # DNS, TCP, TLS/ALPN (HTTP/2 vs 1.1), cipher, redirects
 │   │   └── packet_capture.py   # Captura opcional controlada via tshark ou scapy
+│   ├── storage/                # Persistência SQLite/SQLAlchemy, deduplicação e analytics
+│   │   ├── database.py         # Engine SQLite, PRAGMA foreign_keys e sessões
+│   │   ├── models.py           # Tabelas ORM (sources, runs, news_items, keywords, reviews, telemetry)
+│   │   ├── dedup.py            # Canonicalização de URL, hash de conteúdo e palavras-chave
+│   │   └── repository.py       # NewsRepository (CRUD, filtros, curadoria e séries diárias)
+│   ├── pipeline/
+│   │   └── monitor.py          # Ciclos incrementais e agendamento contínuo
 │   └── nlp/
 │       ├── preprocessing.py    # Limpeza e normalização de texto
 │       ├── dataset.py          # Leitura, limpeza e validação do dataset
@@ -81,13 +89,26 @@ python TreinarMLP.py --pooling mean --classifier svc --max-length 256 --no-plot
 # Todas as fontes padrão (salva telemetria real DNS/TLS/ALPN/HTTP em artifacts/network_telemetry.json):
 python ClassificarMLP.py --source all --limit 5 --no-plot
 
-# Inspecionar também a URL final de cada matéria/post e capturar tráfego local (se tshark/scapy instalado):
-python ClassificarMLP.py --source all --limit 3 --inspect-items --capture-packets --no-plot
+# Salvando também no banco SQLite histórico (data/monitor_ambiental.db):
+python ClassificarMLP.py --source all --limit 5 --save-db --no-plot
 
 # Fonte específica (g1, agencia_brasil, oeco, mongabay, mastodon, reddit, manual):
 python ClassificarMLP.py --source g1 --no-plot
 python ClassificarMLP.py --source mastodon --limit 5 --no-plot
 python ClassificarMLP.py --source manual --no-plot
+```
+
+### 5. Monitoramento incremental e agendado no SQLite
+
+```bash
+# Execução única com exibição de estatísticas históricas:
+python scripts/monitor_pipeline.py --once --source all --limit 10 --stats
+
+# Execução contínua a cada 30 minutos com deduplicação automática:
+python scripts/monitor_pipeline.py --interval-minutes 30 --source all --limit 10
+
+# Consultar apenas estatísticas já armazenadas no banco:
+python scripts/monitor_pipeline.py --stats-only
 ```
 
 ## Testes
